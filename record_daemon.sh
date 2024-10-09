@@ -120,7 +120,7 @@ while true; do
 
 			# echo "starting video on stream ${stream}"
 			
-			bash "${DIR}/${SINGLE_STREAM_EXE}" "${stream}" >> "${LOG_FILE}" &
+			bash "${DIR}/${SINGLE_STREAM_EXE}" "${stream}" &
 
 			# wait until ffmpeg is indeed running
 			sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
