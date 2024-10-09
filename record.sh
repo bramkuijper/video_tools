@@ -8,7 +8,9 @@
 # 3. after n minutes quits each stream and restarts the stream
 
 # interval during which process should sleep
-SLEEP_INTERVAL=3
+SLEEP_POST_SETUP=3
+SLEEP_POST_KILL=3
+WAIT_BEFORE_FETCH_FFMPEG_PID=1
 
 # script that locates all the streams
 STREAM_LOCATOR="locate_video_streams.sh"
@@ -17,47 +19,45 @@ STREAM_LOCATOR="locate_video_streams.sh"
 SINGLE_STREAM_EXE="start_single_stream.sh"
 
 # duration of each movie in minutes
-DURATION_MOVIE_MINUTES=1
+DURATION_MOVIE_MINUTES=2
+
+LOG_FILE=logfile.txt
+
+### some scripts to get current location of bash script
+SOURCE=${BASH_SOURCE[0]}
+while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+	DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+	SOURCE=$(readlink "$SOURCE")
+	[[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
 
 ### function declarations
 
 # function which checks whether the stream actually exists
 # for example if usb cam has stopped working we might try to
 # launch processes on it, but it won't work 
-stream_exists () {
-	ps -p $1 -o pid=
-} # end stream_exists()
-
-
-# start a video stream and return the pid
-# this function assumes the stream exists
-start_video () {
-	stream_id=$1
-
-	# check if an argument has actually been provided
-	if [[ -z "${stream_id}" ]]; then
-		return 0
+process_exists () {
+	echo "$@" 1>&2
+	if [[ -n ${1} ]]; then
+		ps -p $1 -o pid=
 	fi
-	
-	# find out whether a current process ID
-	# is occupying our stream
-	process_using_stream=`fuser "${stream_id}"`
+} # end process_exists()
 
-	# if result of previous empty so no 
-	# proces is running, start a video process here
-	if [[ -z "${process_using_stream}" ]]; then
-		bash "${SINGLE_STREAM_EXE}" ${stream_id} &
-		new_pid=$! # here $! returns the process ID 
+# get the process id of ffmpeg and 
+# try to kill that
+get_ffmpeg_id () {
+	echo "$@" 1>&2
+
+	if [[ -n ${1} ]]; then
+		ps ax | grep ${1} | grep ffmpeg | awk -F' ' '{ print $1 }'
 	fi
-	
-	echo $new_pid
-	
-	return 0
-} # end start_video
+}
 
 
 # collect array of all the available video streams
-streams=($(./$STREAM_LOCATOR))
+streams=($(${DIR}/${STREAM_LOCATOR}))
 
 # print message on how many video streams there are
 
@@ -71,6 +71,30 @@ declare -A pids
 declare -A pid_start_times
 
 
+# function that cleans up all processes 
+# if we receive an interrupt
+cleanup () {
+
+	# for some weird reason killing one stream
+	# kills all of them
+#	for stream in "${streams[@]}"
+#	do
+#		echo "killing pid ${pids[${stream}]}"
+#		kill "${pids[${stream}]}"
+#
+#		sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
+#	done
+
+	# this is not great, as one gets 'Immediate exit requested'
+	# errors in ffmpeg, but it is the only way to safely kill processes
+	# it seems
+	killall --user $USER --ignore-case --signal SIGTERM ffmpeg
+	exit 1
+}
+
+trap cleanup SIGINT
+
+
 # infinite loop waiting for SIGINT (Ctrl+C)
 while true; do
 
@@ -81,29 +105,66 @@ while true; do
 	do
 		# -z checks whether associative array entry for this stream 
 		# is empty, meaning we need to make a new stream
-		if [[ -z "${pids[$stream]}" ]]; then 
+		if [[ -z "${pids[$stream]}" || -z `process_exists "${pids[$stream]}"` ]]; then 
 
-			pid=`start_video "${stream}"`
+			echo "starting video on stream ${stream}"
+			
+			bash "${DIR}/${SINGLE_STREAM_EXE}" "${stream}" >> "${LOG_FILE}" &
 
-			if [[ -n $pid ]]; then
-				pids["${stream}"]=$pid	# store process id
-				pid_start_times["${stream}"]=`date +%s` # store time in seconds
+			# wait until ffmpeg is indeed running
+			sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
+
+			the_fpid=`get_ffmpeg_id ${stream}`
+
+			# if the process id still exists
+			# it means it did not prematurely end in error
+			# store the thing
+			if [[ -n $the_fpid && -n `process_exists "${the_fpid}"` ]]; then
+				pids[${stream}]=$the_fpid	# store process id
+				pid_start_times[${stream}]=`date +%s` # store time in seconds
 			fi
+		
+			echo "stream with pid ${the_fpid} on ${stream} started."
 		fi
 	done
 
-	sleep $SLEEP_INTERVAL
+	echo "zzz"
+	sleep $SLEEP_POST_SETUP
 
 	# next bit of the loop is to check for times
 	# that each process is running for. If this is longer 
 	# than the desired number of minutes end the stream
 	for stream in "${streams[@]}"
 	do
-		current_time=`date +%s`
+		# first check whether process actually still exists
+		# otherwise we don't need to do all this
+		if [[ -z `process_exists "${pids[${stream}]}"` ]]; then
+			unset 'pids[$stream]'
+		else # ok process is still existing check whether we need to kill it
 
-		# vid lasted longer than duration in mins, cut it off
-		if (( (${pid_start_times["${stream}"]}-$current_time) > $DURATION_MOVIE_MINUTES*60 )); then
-			kill $pids["${stream}"]
+			current_time=`date +%s`
+
+			# vid lasted longer than duration in mins, cut it off
+			if (( ($current_time - ${pid_start_times[${stream}]}) > $DURATION_MOVIE_MINUTES*60 )); then
+
+				echo "killing pid ${pids[${stream}]}"
+				kill "${pids[${stream}]}"
+			
+				sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
+
+				# check whether process still exists
+				if [[ -z `process_exists "${pids[${stream}]}"` ]]; then
+					unset 'pids[$stream]'
+				else
+					echo "even after killing process ${pids[${stream}]} still exists."
+				fi
+
+
+				# wild, just wild how to unset stuff in an associative array in bash
+				# https://stackoverflow.com/questions/39172400/unseting-a-value-in-an-associative-bash-array-when-the-key-contains-a-quote
+			fi
 		fi
 	done
+	
+	sleep $SLEEP_POST_KILL
 done
