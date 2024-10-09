@@ -11,6 +11,7 @@
 SLEEP_POST_SETUP=3
 SLEEP_POST_KILL=3
 WAIT_BEFORE_FETCH_FFMPEG_PID=1
+VIDEO_PROG="ffmpeg"
 
 # script that locates all the streams
 STREAM_LOCATOR="locate_video_streams.sh"
@@ -18,8 +19,13 @@ STREAM_LOCATOR="locate_video_streams.sh"
 # script that starts a single stream
 SINGLE_STREAM_EXE="start_single_stream.sh"
 
+if [[ -z $1 ]]; then
+	echo "Error in ${0}: please provide duration of movie in minutes"
+	exit 1
+fi
+
 # duration of each movie in minutes
-DURATION_MOVIE_MINUTES=2
+DURATION_MOVIE_MINUTES=$1
 
 LOG_FILE=logfile.txt
 
@@ -39,7 +45,7 @@ DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 # for example if usb cam has stopped working we might try to
 # launch processes on it, but it won't work 
 process_exists () {
-	echo "$@" 1>&2
+	# echo "$@" 1>&2
 	if [[ -n ${1} ]]; then
 		ps -p $1 -o pid=
 	fi
@@ -48,10 +54,10 @@ process_exists () {
 # get the process id of ffmpeg and 
 # try to kill that
 get_ffmpeg_id () {
-	echo "$@" 1>&2
+	# echo "$@" 1>&2
 
 	if [[ -n ${1} ]]; then
-		ps ax | grep ${1} | grep ffmpeg | awk -F' ' '{ print $1 }'
+		ps ax | grep ${1} | grep "$VIDEO_PROG" | awk -F' ' '{ print $1 }'
 	fi
 }
 
@@ -85,14 +91,19 @@ cleanup () {
 #		sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
 #	done
 
+	echo "really not sure why it is not acting on cleanup"
+
 	# this is not great, as one gets 'Immediate exit requested'
 	# errors in ffmpeg, but it is the only way to safely kill processes
 	# it seems
-	killall --user $USER --ignore-case --signal SIGTERM ffmpeg
+	killall --user $USER --ignore-case --signal SIGTERM "$VIDEO_PROG"
 	exit 1
 }
 
+# make traps that capture kill signals so that we can kill all 
+# child processes that use ffmpeg
 trap cleanup SIGINT
+trap cleanup SIGTERM
 
 
 # infinite loop waiting for SIGINT (Ctrl+C)
@@ -107,7 +118,7 @@ while true; do
 		# is empty, meaning we need to make a new stream
 		if [[ -z "${pids[$stream]}" || -z `process_exists "${pids[$stream]}"` ]]; then 
 
-			echo "starting video on stream ${stream}"
+			# echo "starting video on stream ${stream}"
 			
 			bash "${DIR}/${SINGLE_STREAM_EXE}" "${stream}" >> "${LOG_FILE}" &
 
@@ -124,11 +135,11 @@ while true; do
 				pid_start_times[${stream}]=`date +%s` # store time in seconds
 			fi
 		
-			echo "stream with pid ${the_fpid} on ${stream} started."
+			# echo "stream with pid ${the_fpid} on ${stream} started."
 		fi
 	done
 
-	echo "zzz"
+	# echo "zzz"
 	sleep $SLEEP_POST_SETUP
 
 	# next bit of the loop is to check for times
@@ -147,7 +158,7 @@ while true; do
 			# vid lasted longer than duration in mins, cut it off
 			if (( ($current_time - ${pid_start_times[${stream}]}) > $DURATION_MOVIE_MINUTES*60 )); then
 
-				echo "killing pid ${pids[${stream}]}"
+				# echo "killing pid ${pids[${stream}]}"
 				kill "${pids[${stream}]}"
 			
 				sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
