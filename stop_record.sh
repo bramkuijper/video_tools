@@ -22,5 +22,3 @@ if [[ -n ${ffmpeg_process} ]]; then
 	logger "${the_date}: killing ffmpeg, processes ${ffmpeg_process}."
 	kill "${ffmpeg_process}"
 fi
-
-
