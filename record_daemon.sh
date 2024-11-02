@@ -8,7 +8,7 @@
 # 3. after n minutes quits each stream and restarts the stream
 
 # interval during which process should sleep
-SLEEP_POST_SETUP=3
+SLEEP_POST_SETUP=30
 SLEEP_POST_KILL=3
 WAIT_BEFORE_FETCH_FFMPEG_PID=1
 VIDEO_PROG="ffmpeg"
@@ -19,8 +19,9 @@ STREAM_LOCATOR="locate_video_streams.sh"
 # script that starts a single stream
 SINGLE_STREAM_EXE="start_single_stream.sh"
 
+current_date=`date`
 if [[ -z $1 ]]; then
-	echo "Error in ${0}: please provide duration of movie in minutes"
+	logger "${current_date}: Error in ${0}: please provide duration of movie in minutes"
 	exit 1
 fi
 
@@ -81,17 +82,8 @@ declare -A pid_start_times
 # if we receive an interrupt
 cleanup () {
 
-	# for some weird reason killing one stream
-	# kills all of them
-#	for stream in "${streams[@]}"
-#	do
-#		echo "killing pid ${pids[${stream}]}"
-#		kill "${pids[${stream}]}"
-#
-#		sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
-#	done
-
-	echo "really not sure why it is not acting on cleanup"
+	current_date=`date`
+	logger "${current_date}: quitting the video recording daemon"
 
 	# this is not great, as one gets 'Immediate exit requested'
 	# errors in ffmpeg, but it is the only way to safely kill processes
@@ -109,6 +101,9 @@ trap cleanup SIGTERM
 # infinite loop waiting for SIGINT (Ctrl+C)
 while true; do
 
+	# get latest on the streams
+	streams=($(${DIR}/${STREAM_LOCATOR}))
+
 	# go through video streams that are available 
 	# and see whether they have a process ID
 	# already associated with them
@@ -118,14 +113,16 @@ while true; do
 		# is empty, meaning we need to make a new stream
 		if [[ -z "${pids[$stream]}" || -z `process_exists "${pids[$stream]}"` ]]; then 
 
-			# echo "starting video on stream ${stream}"
-			
 			bash "${DIR}/${SINGLE_STREAM_EXE}" "${stream}" &
 
 			# wait until ffmpeg is indeed running
 			sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
 
 			the_fpid=`get_ffmpeg_id ${stream}`
+
+			current_date=`date`
+
+			logger "${current_date}: started ffmpeg stream for stream ${stream}" 
 
 			# if the process id still exists
 			# it means it did not prematurely end in error
@@ -135,11 +132,9 @@ while true; do
 				pid_start_times[${stream}]=`date +%s` # store time in seconds
 			fi
 		
-			# echo "stream with pid ${the_fpid} on ${stream} started."
 		fi
 	done
 
-	# echo "zzz"
 	sleep $SLEEP_POST_SETUP
 
 	# next bit of the loop is to check for times
@@ -157,8 +152,10 @@ while true; do
 
 			# vid lasted longer than duration in mins, cut it off
 			if (( ($current_time - ${pid_start_times[${stream}]}) > $DURATION_MOVIE_MINUTES*60 )); then
+			
+				current_date=`date`
+				logger "${current_date}: killed ffmpeg stream for stream ${stream} as movie duration was exceeded." 
 
-				# echo "killing pid ${pids[${stream}]}"
 				kill "${pids[${stream}]}"
 			
 				sleep $WAIT_BEFORE_FETCH_FFMPEG_PID
@@ -167,7 +164,7 @@ while true; do
 				if [[ -z `process_exists "${pids[${stream}]}"` ]]; then
 					unset 'pids[$stream]'
 				else
-					echo "even after killing process ${pids[${stream}]} still exists."
+					logger "${current_date}: even after killing process ${pids[${stream}]} still exists."
 				fi
 
 
