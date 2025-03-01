@@ -9,16 +9,17 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
+CONFIG="config.sh"
+
+. ${DIR}/${CONFIG}
+
+
+
 
 # script that records video from a single webcam
 # how to run it: 
 # ./record_video.sh number file
 
-FILE_PREFIX="cricketvid"
-FILE_EXTENSION="mp4"
-FFMPEG_FLAGS="-loglevel error"
-
-STREAM_LOCATOR="locate_video_streams.sh"
 
 # collect array of all the available video streams
 streams=($(${DIR}/${STREAM_LOCATOR}))
@@ -47,4 +48,4 @@ vid_basename=`basename ${1}`
 
 out_file="$FILE_PREFIX"_"$(date '+%Y_%m_%d_%H%M%S_%N')"_${vid_basename}.${FILE_EXTENSION}
 
-ffmpeg $FFMPEG_FLAGS -f video4linux2 -framerate 30 -video_size 1920x1080 -input_format mjpeg -i "${1}" "${out_file}"
+$VIDEO_PROG -loglevel error -f video4linux2 -framerate 30 -video_size 1920x1080 -input_format mjpeg -i "${1}" "${out_file}"

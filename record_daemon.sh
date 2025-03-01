@@ -7,30 +7,9 @@
 # 3. checks every while whether thread is still working, otherwise restarts
 # 3. after n minutes quits each stream and restarts the stream
 
-# interval during which process should sleep
-SLEEP_POST_SETUP=30
-SLEEP_POST_KILL=3
-WAIT_BEFORE_FETCH_FFMPEG_PID=1
-VIDEO_PROG="ffmpeg"
+CONFIG_FILE="config.sh"
 
-# script that locates all the streams
-STREAM_LOCATOR="locate_video_streams.sh"
-
-# script that starts a single stream
-SINGLE_STREAM_EXE="start_single_stream.sh"
-
-current_date=`date`
-if [[ -z $1 ]]; then
-	logger "${current_date}: Error in ${0}: please provide duration of movie in minutes"
-	exit 1
-fi
-
-# duration of each movie in minutes
-DURATION_MOVIE_MINUTES=$1
-
-LOG_FILE=logfile.txt
-
-### some scripts to get current location of bash script
+### get current location of bash script
 SOURCE=${BASH_SOURCE[0]}
 while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
 	DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
@@ -38,6 +17,10 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 	[[ $SOURCE != /* ]] && SOURCE=$DIR/$SOURCE # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
 done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
+
+
+# read in the configuration file
+. $DIR/$CONFIG_FILE
 
 
 ### function declarations
